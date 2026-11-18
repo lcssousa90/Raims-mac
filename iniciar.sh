@@ -24,7 +24,7 @@ if ! command -v git &>/dev/null; then
 fi
 
 # 2. Pergunta o link do repositório (ou usa o padrão configurado)
-REPO_PADRAO="https://github.com/lcsso/reims-mac.git"
+REPO_PADRAO="https://github.com/lcssousa90/Raims-mac.git"
 echo -e "${AMARELO}Digite a URL do seu repositório GitHub:${RESET}"
 echo -e "Pressione [Enter] para usar: ${AZUL}${REPO_PADRAO}${RESET}"
 read -rp "URL: " REPO_URL
