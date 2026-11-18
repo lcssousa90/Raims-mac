@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>REIMS — macOS Tahoe</title>
+  <script src="../cockpit/cockpit.js"></script>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --card: #0f3460;
+      --accent: #e94560;
+      --green: #00d4aa;
+      --yellow: #ffd460;
+      --red: #e94560;
+      --text: #eaeaea;
+      --dim: #8899aa;
+      --border: rgba(255,255,255,0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      font-size: 14px;
+      min-height: 100vh;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 28px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    header .logo { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+    header .logo span { color: var(--accent); }
+    header .subtitle { color: var(--dim); font-size: 12px; }
+
+    .status-pill {
+      margin-left: auto;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    .status-pill.running  { background: rgba(0,212,170,0.15); color: var(--green); border: 1px solid rgba(0,212,170,0.3); }
+    .status-pill.stopped  { background: rgba(233,69,96,0.15);  color: var(--red);   border: 1px solid rgba(233,69,96,0.3); }
+    .status-pill.loading  { background: rgba(255,212,96,0.15); color: var(--yellow);border: 1px solid rgba(255,212,96,0.3); }
+
+    main { padding: 24px 28px; display: grid; gap: 20px; max-width: 1100px; }
+
+    /* Ações Rápidas */
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .btn {
+      padding: 9px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .btn-primary  { background: var(--accent);  color: #fff; }
+    .btn-success  { background: var(--green);   color: #111; }
+    .btn-warning  { background: var(--yellow);  color: #111; }
+    .btn-neutral  { background: var(--card);    color: var(--text); border: 1px solid var(--border); }
+    .btn-danger   { background: rgba(233,69,96,0.2); color: var(--red); border: 1px solid rgba(233,69,96,0.3); }
+    .btn:hover    { filter: brightness(1.15); transform: translateY(-1px); }
+    .btn:active   { transform: translateY(0); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* Cards de Métricas */
+    .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+
+    .metric-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .metric-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+    .metric-value { font-size: 28px; font-weight: 700; line-height: 1; }
+    .metric-sub   { font-size: 11px; color: var(--dim); margin-top: 4px; }
+
+    .bar-wrap { margin-top: 8px; background: rgba(255,255,255,0.08); border-radius: 999px; height: 5px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 999px; transition: width 1s ease; }
+    .bar-green  { background: var(--green); }
+    .bar-yellow { background: var(--yellow); }
+    .bar-red    { background: var(--red); }
+
+    /* Seções */
+    .section-title {
+      font-size: 11px;
+      color: var(--dim);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 10px;
+    }
+
+    /* Log */
+    .log-box {
+      background: #0d0d1a;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-family: 'JetBrains Mono', 'Courier New', monospace;
+      font-size: 12px;
+      height: 220px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+    .log-line.erro   { color: var(--red); }
+    .log-line.aviso  { color: var(--yellow); }
+    .log-line.info   { color: var(--dim); }
+    .log-line.ok     { color: var(--green); }
+
+    /* Config */
+    .config-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+    .config-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .config-key   { font-size: 12px; color: var(--dim); }
+    .config-value { font-size: 13px; font-weight: 600; }
+
+    select.inline-select {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+
+    @media (max-width: 600px) {
+      main { padding: 16px; }
+      .config-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">REIMS <span>macOS</span></div>
+    <div class="subtitle">Ryzen 5 5600X · RTX 3070 · Debian Backend</div>
+  </div>
+  <div class="status-pill loading" id="vm-status-pill">Verificando...</div>
+</header>
+
+<main>
+
+  <!-- Ações Rápidas -->
+  <div>
+    <div class="section-title">Controles da VM</div>
+    <div class="actions">
+      <button class="btn btn-success" id="btn-start"  onclick="reimsCmd('start')">▶ Iniciar</button>
+      <button class="btn btn-warning" id="btn-reset"  onclick="reimsCmd('reset')">↺ Restaurar Estado Limpo</button>
+      <button class="btn btn-neutral" id="btn-backup" onclick="reimsCmd('backup')">💾 Backup</button>
+      <button class="btn btn-neutral" id="btn-pf"     onclick="reimsCmd('preflight')">🩺 Pré-voo</button>
+      <button class="btn btn-danger"  id="btn-kill"   onclick="killVM()">■ Parar VM</button>
+    </div>
+  </div>
+
+  <!-- Métricas em Tempo Real -->
+  <div>
+    <div class="section-title">Monitor de Hardware</div>
+    <div class="metrics">
+      <div class="metric-card">
+        <div class="metric-label">🌡 Temperatura GPU</div>
+        <div class="metric-value" id="m-temp">--°C</div>
+        <div class="metric-sub">RTX 3070 · Alerta: 85°C</div>
+        <div class="bar-wrap"><div class="bar-fill bar-green" id="bar-temp" style="width:0%"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">⚡ Uso GPU</div>
+        <div class="metric-value" id="m-gpu">--%</div>
+        <div class="metric-sub">Vulkan Backend</div>
+        <div class="bar-wrap"><div class="bar-fill bar-green" id="bar-gpu" style="width:0%"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">🎮 VRAM Usada</div>
+        <div class="metric-value" id="m-vram">-- MB</div>
+        <div class="metric-sub" id="m-vram-total">de 8192 MB</div>
+        <div class="bar-wrap"><div class="bar-fill bar-green" id="bar-vram" style="width:0%"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">🧠 RAM do Host</div>
+        <div class="metric-value" id="m-ram">-- GB</div>
+        <div class="metric-sub" id="m-ram-total">de 16 GB</div>
+        <div class="bar-wrap"><div class="bar-fill bar-green" id="bar-ram" style="width:0%"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">💻 Uso CPU Host</div>
+        <div class="metric-value" id="m-cpu">--%</div>
+        <div class="metric-sub">Ryzen 5 5600X</div>
+        <div class="bar-wrap"><div class="bar-fill bar-green" id="bar-cpu" style="width:0%"></div></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">⚡ TDP GPU</div>
+        <div class="metric-value" id="m-tdp">-- W</div>
+        <div class="metric-sub">Consumo de energia</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Configuração Rápida -->
+  <div>
+    <div class="section-title">Configuração Ativa (reims.env)</div>
+    <div class="config-grid">
+      <div class="config-item">
+        <div class="config-key">Driver GPU</div>
+        <select class="inline-select" id="cfg-driver" onchange="salvarConfig('DRIVER_GPU', this.value)">
+          <option value="reims-graphics-pci">reims-graphics-pci (Metal)</option>
+          <option value="virtio-vga-gl">virtio-vga-gl (Fallback)</option>
+          <option value="vmware-svga">vmware-svga (Legado)</option>
+        </select>
+      </div>
+      <div class="config-item">
+        <div class="config-key">RAM da VM</div>
+        <select class="inline-select" id="cfg-ram" onchange="salvarConfig('RAM', this.value)">
+          <option value="8G">8 GB</option>
+          <option value="10G" selected>10 GB</option>
+          <option value="12G">12 GB</option>
+        </select>
+      </div>
+      <div class="config-item">
+        <div class="config-key">Modo de Exibição</div>
+        <select class="inline-select" id="cfg-display" onchange="salvarConfig('DISPLAY_MODE', this.value)">
+          <option value="sdl" selected>SDL (Janela)</option>
+          <option value="headless">Headless (SSH)</option>
+          <option value="gtk">GTK (com menu)</option>
+        </select>
+      </div>
+      <div class="config-item">
+        <div class="config-key">VRAM</div>
+        <select class="inline-select" id="cfg-vram" onchange="salvarConfig('VRAM_MB', this.value)">
+          <option value="2048">2 GB</option>
+          <option value="4096" selected>4 GB</option>
+          <option value="6144">6 GB</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log em Tempo Real -->
+  <div>
+    <div class="section-title" style="display:flex; justify-content:space-between">
+      <span>Log da Sessão Atual</span>
+      <button class="btn btn-neutral" style="padding:3px 10px; font-size:11px" onclick="limparLog()">Limpar</button>
+    </div>
+    <div class="log-box" id="log-box">
+      <div class="log-line info">[ REIMS Cockpit Plugin carregado ]</div>
+    </div>
+  </div>
+
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

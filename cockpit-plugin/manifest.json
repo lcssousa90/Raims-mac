@@ -1,0 +1,9 @@
+{
+  "version": 0,
+  "tools": {
+    "reims": {
+      "label": "macOS Tahoe (REIMS)",
+      "path": "index.html"
+    }
+  }
+}

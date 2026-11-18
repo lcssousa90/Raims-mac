@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# REIMS — Central de Controle do macOS Tahoe
+# Uso: ./reims            → Abre o menu visual interativo
+#      ./reims <comando>  → Executa diretamente
+# ==============================================================================
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# ── Cores ────────────────────────────────────────────────────────────────────
+VERDE="\e[1;32m"; AZUL="\e[1;34m"; AMARELO="\e[1;33m"
+VERMELHO="\e[1;31m"; CIANO="\e[1;36m"; RESET="\e[0m"; DIM="\e[2m"
+
+# ── Log Global ───────────────────────────────────────────────────────────────
+mkdir -p logs
+LOG_GLOBAL="logs/reims.log"
+_log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$1] $2" | tee -a "$LOG_GLOBAL"; }
+
+# ── Detectar estado atual do projeto ─────────────────────────────────────────
+_estado_projeto() {
+    ESTADO_SETUP=false
+    ESTADO_DISCO=false
+    ESTADO_EFI=false
+    ESTADO_ENV=false
+
+    [ -f "reims.env" ]               && ESTADO_ENV=true
+    [ -e "/dev/kvm" ]                && ESTADO_SETUP=true
+    [ -f "vms/tahoe_base.qcow2" ]    && ESTADO_DISCO=true
+    [ -f "efi/OVMF_CODE.fd" ]        && ESTADO_EFI=true
+}
+
+# ── Wizard de Primeira Execução ───────────────────────────────────────────────
+_wizard() {
+    clear
+    echo -e "${CIANO}"
+    echo "  ██████╗ ███████╗██╗███╗   ███╗███████╗"
+    echo "  ██╔══██╗██╔════╝██║████╗ ████║██╔════╝"
+    echo "  ██████╔╝█████╗  ██║██╔████╔██║███████╗"
+    echo "  ██╔══██╗██╔══╝  ██║██║╚██╔╝██║╚════██║"
+    echo "  ██║  ██║███████╗██║██║ ╚═╝ ██║███████║"
+    echo "  ╚═╝  ╚═╝╚══════╝╚═╝╚═╝     ╚═╝╚══════╝"
+    echo -e "${RESET}"
+    echo -e "  ${BRANCO:-\e[1;37m}macOS Tahoe — Powered by Reims vGPU${RESET}"
+    echo -e "  ${DIM}Ryzen 5 5600X | RTX 3070 | Debian Linux${RESET}"
+    echo ""
+    echo -e "${AMARELO}  Este parece ser o primeiro uso. Vamos configurar tudo!${RESET}"
+    echo ""
+
+    # Checagem de dependências críticas com instruções de correção inline
+    BLOQUEIOS=0
+
+    echo -e "  ${AZUL}Verificando requisitos...${RESET}"
+    echo ""
+
+    _chk() {
+        local OK="$1"; local MSG="$2"; local FIX="${3:-}"
+        if [ "$OK" = "true" ]; then
+            echo -e "  ${VERDE}[✓]${RESET} $MSG"
+        else
+            echo -e "  ${VERMELHO}[✗]${RESET} $MSG"
+            [ -n "$FIX" ] && echo -e "       ${DIM}↳ $FIX${RESET}"
+            BLOQUEIOS=$((BLOQUEIOS+1))
+        fi
+    }
+
+    [ -e /dev/kvm ] && KVM=true || KVM=false
+    [ -e /dev/udmabuf ] && UDMA=true || UDMA=false
+    command -v qemu-system-x86_64 &>/dev/null && QEMU=true || QEMU=false
+    [ -f "efi/OVMF_CODE.fd" ] && OVMF=true || OVMF=false
+    [ -f "vms/tahoe_base.qcow2" ] && DISCO=true || DISCO=false
+
+    _chk "$KVM"  "KVM Ativo"             "Execute: ./reims setup"
+    _chk "$UDMA" "udmabuf Carregado"     "Execute: sudo modprobe udmabuf"
+    _chk "$QEMU" "QEMU Instalado"        "Execute: ./reims setup"
+    _chk "$OVMF" "Firmware UEFI (OVMF)" "Execute: ./reims setup"
+    _chk "$DISCO" "Imagem macOS Tahoe"   "Execute: ./reims create"
+
+    echo ""
+    if [ "$BLOQUEIOS" -gt 0 ]; then
+        echo -e "  ${VERMELHO}$BLOQUEIOS problema(s) encontrado(s).${RESET}"
+        echo -e "  Recomendado: execute ${AZUL}./reims setup${RESET} para corrigir tudo automaticamente."
+        echo ""
+        read -rp "  Executar setup agora? (S/n): " CONF_SETUP
+        [[ "${CONF_SETUP:-s}" =~ ^[sSnN]?$ ]] && [[ ! "${CONF_SETUP:-s}" =~ ^[nN]$ ]] && bash tools/setup-host.sh
+    else
+        echo -e "  ${VERDE}Tudo pronto! Abrindo menu principal...${RESET}"
+        sleep 1
+    fi
+}
+
+# ── Menu Visual Principal ─────────────────────────────────────────────────────
+_menu() {
+    _estado_projeto
+
+    # Monta linha de status para o menu
+    ST_VM="${VERMELHO}Não instalada${RESET}"
+    $ESTADO_DISCO && ST_VM="${VERDE}Pronta para iniciar${RESET}"
+
+    if ! command -v whiptail &>/dev/null; then
+        echo -e "${AMARELO}whiptail não encontrado. Execute: sudo apt install -y whiptail${RESET}"
+        _ajuda; return
+    fi
+
+    while true; do
+        ESCOLHA=$(whiptail --title "REIMS — macOS Tahoe Center" \
+            --menu "
+  Hardware: Ryzen 5 5600X | RTX 3070 | 16GB RAM
+  Selecione uma opção:" 22 68 10 \
+            "1" "  Iniciar macOS Tahoe" \
+            "2" "  Setup Inicial / Instalar Dependências" \
+            "3" "  Baixar / Criar Imagem do macOS Tahoe" \
+            "4" "  Pré-voo: Verificar Requisitos do Sistema" \
+            "5" "  Monitor em Tempo Real (GPU, Temp, VRAM)" \
+            "6" "  Backup da Imagem Base" \
+            "7" "  Restaurar Backup Anterior" \
+            "8" "  Restaurar Estado Limpo (Anti-Quebra)" \
+            "9" "  Ver Logs do Sistema" \
+            "0" "  Trocar Driver de GPU" \
+            "C" "  Ativar Painel Web (Cockpit na porta 9090)" \
+            "A" "  Instalar Antigravity CLI (agy) no Debian" \
+            "S" "  Configurar Acesso SSH Remoto" \
+            "X" "  Sair" \
+            3>&1 1>&2 2>&3) || break
+
+        case "$ESCOLHA" in
+            1)
+                clear
+                _log "INFO" "Usuário iniciou a VM pelo menu"
+                bash scripts/preflight.sh && bash scripts/run-tahoe.sh || {
+                    _log "ERRO" "VM falhou ao iniciar — veja logs/latest.log"
+                    whiptail --title "Erro de Inicialização" \
+                        --msgbox "A VM não iniciou.\n\nConsulte o log com:\n  ./reims logs erros" 10 55
+                }
+                ;;
+            2) clear; bash tools/setup-host.sh; read -rp "Pressione Enter para continuar..." ;;
+            3) clear; python3 tools/fetch-macos.py -v tahoe; read -rp "Pressione Enter para continuar..." ;;
+            4)
+                RESULTADO=$(bash scripts/preflight.sh 2>&1 || true)
+                whiptail --title "Pré-voo — Resultado" --scrolltext --msgbox "$RESULTADO" 24 70
+                ;;
+            5) clear; bash scripts/monitor.sh ;;
+            6)
+                NOME=$(whiptail --inputbox "Nome para este backup (ou Enter para data automática):" 8 55 "" 3>&1 1>&2 2>&3 || echo "")
+                clear; bash scripts/backup.sh "${NOME:-auto}"
+                read -rp "Pressione Enter para continuar..."
+                ;;
+            7) clear; bash scripts/restore.sh; read -rp "Pressione Enter para continuar..." ;;
+            8)
+                whiptail --title "Restaurar Estado Limpo" --yesno \
+                    "Isso descarta todas as alterações feitas no macOS e restaura o sistema para o estado original da imagem base.\n\nDeseja continuar?" 10 60 && \
+                bash scripts/reset-overlay.sh
+                ;;
+            9)
+                MODO_LOG=$(whiptail --title "Logs" --menu "Escolha:" 12 50 3 \
+                    "tail"   "Monitoramento ao vivo" \
+                    "erros"  "Apenas erros registrados" \
+                    "lista"  "Todas as sessões" \
+                    3>&1 1>&2 2>&3 || echo "")
+                [ -n "$MODO_LOG" ] && { clear; bash scripts/logs.sh "$MODO_LOG"; read -rp "Pressione Enter para continuar..."; }
+                ;;
+            0)
+                DRIVER=$(whiptail --title "Trocar Driver de GPU" --radiolist \
+                    "Selecione o driver:" 14 65 3 \
+                    "reims-graphics-pci" "Reims vGPU (Metal paravirtualizado) — RTX 3070" ON \
+                    "virtio-vga-gl"      "VirtIO GL (fallback, sem Metal)"                 OFF \
+                    "vmware-svga"        "VMware SVGA (compatibilidade máxima)"             OFF \
+                    3>&1 1>&2 2>&3 || echo "")
+                if [ -n "$DRIVER" ]; then
+                    sed -i "s|^DRIVER_GPU=.*|DRIVER_GPU=\"$DRIVER\"|" reims.env
+                    _log "INFO" "Driver GPU alterado para: $DRIVER"
+                    whiptail --title "Driver Atualizado" --msgbox "Driver salvo: $DRIVER\n\nA mudança terá efeito na próxima inicialização." 8 55
+                fi
+                ;;
+            C) clear; bash cockpit-plugin/install.sh; read -rp "Pressione Enter para continuar..." ;;
+            A) clear; bash tools/instalar-antigravity.sh; read -rp "Pressione Enter para continuar..." ;;
+            S) clear; bash scripts/ssh-manager.sh setup; read -rp "Pressione Enter para continuar..." ;;
+            X|"") break ;;
+        esac
+    done
+}
+
+# ── Ajuda ─────────────────────────────────────────────────────────────────────
+_ajuda() {
+    echo ""
+    echo -e "  ${CIANO}REIMS — Comandos Disponíveis${RESET}"
+    echo ""
+    printf "  ${VERDE}%-18s${RESET} %s\n" "start"    "Iniciar o macOS Tahoe"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "setup"    "Instalar dependências e preparar o host"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "create"   "Baixar imagem oficial do macOS Tahoe"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "preflight" "Verificar requisitos antes de iniciar"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "doctor"   "Diagnóstico rápido de hardware"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "monitor"  "Monitor de GPU e CPU em tempo real"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "backup"   "Criar backup da imagem base"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "restore"  "Restaurar backup anterior"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "reset"    "Restaurar estado limpo (anti-quebra)"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "logs [modo]" "Ver logs (tail | erros | lista | limpar)"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "cockpit"     "Instalar e ativar o Painel Web Cockpit (porta 9090)"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "ssh setup"   "Configurar acesso SSH remoto"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "ssh status" "Ver informações de acesso SSH"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "qol tudo" "Ativar todos os utilitários de conforto"
+    echo ""
+    echo -e "  ${DIM}Configurações em: reims.env — edite para trocar driver, RAM, resolução${RESET}"
+    echo ""
+}
+
+# ── Roteador de Comandos ──────────────────────────────────────────────────────
+COMANDO="${1:-menu}"
+
+case "$COMANDO" in
+    start)
+        _log "INFO" "Comando: start"
+        bash scripts/preflight.sh || {
+            _log "ERRO" "Pré-voo bloqueou a inicialização"
+            echo -e "${VERMELHO}Corrija os erros acima antes de iniciar. Veja: ./reims logs erros${RESET}"
+            exit 1
+        }
+        # Abre monitor em janela separada automaticamente
+        for TERM_EMU in gnome-terminal xterm x-terminal-emulator; do
+            if command -v "$TERM_EMU" &>/dev/null; then
+                case "$TERM_EMU" in
+                    gnome-terminal) gnome-terminal --title="REIMS Monitor" -- bash scripts/monitor.sh &;;
+                    xterm)          xterm -title "REIMS Monitor" -e bash scripts/monitor.sh &;;
+                    *)              "$TERM_EMU" -T "REIMS Monitor" -e bash scripts/monitor.sh &;;
+                esac
+                break
+            fi
+        done
+        bash scripts/run-tahoe.sh
+        ;;
+    setup)   bash tools/setup-host.sh ;;
+    create)  python3 tools/fetch-macos.py -v tahoe ;;
+    reset)   bash scripts/reset-overlay.sh ;;
+    backup)  bash scripts/backup.sh "${2:-manual}" ;;
+    restore) bash scripts/restore.sh ;;
+    preflight) bash scripts/preflight.sh ;;
+    monitor) bash scripts/monitor.sh ;;
+    logs)    bash scripts/logs.sh "${2:-}" ;;
+    qol)     bash scripts/qol.sh "${2:-menu}" "${3:-}" ;;
+    ssh)     bash scripts/ssh-manager.sh "${2:-status}" ;;
+    cockpit) bash cockpit-plugin/install.sh ;;
+    ai|agy)  bash tools/instalar-antigravity.sh ;;
+    doctor)
+        echo -e "${AZUL}=== Diagnóstico Rápido ===${RESET}"
+        [ -e /dev/kvm ]    && echo -e "${VERDE}[✓]${RESET} KVM Ativo"           || echo -e "${VERMELHO}[✗]${RESET} KVM: execute ./reims setup"
+        [ -e /dev/udmabuf ] && echo -e "${VERDE}[✓]${RESET} udmabuf Carregado"  || echo -e "${AMARELO}[!]${RESET} udmabuf: sudo modprobe udmabuf"
+        command -v vulkaninfo &>/dev/null && echo -e "${VERDE}[✓]${RESET} Vulkan Instalado" || echo -e "${AMARELO}[!]${RESET} Vulkan: sudo apt install -y vulkan-tools"
+        groups | grep -q "kvm" && echo -e "${VERDE}[✓]${RESET} Usuário no grupo kvm" || echo -e "${AMARELO}[!]${RESET} Grupo kvm: sudo usermod -aG kvm \$USER"
+        [ -f "reims.env" ] && echo -e "${VERDE}[✓]${RESET} reims.env encontrado" || echo -e "${VERMELHO}[✗]${RESET} reims.env ausente"
+        ;;
+    ajuda|help|--help|-h) _ajuda ;;
+    menu|*)
+        _estado_projeto
+        # Mostra wizard na primeira execução se nada estiver configurado
+        if ! $ESTADO_SETUP && ! $ESTADO_DISCO; then
+            _wizard
+        fi
+        _menu
+        ;;
+esac

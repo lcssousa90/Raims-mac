@@ -1,0 +1,22 @@
+# Discos virtuais e imagens binárias pesadas
+vms/*.qcow2
+vms/*.dmg
+vms/*.img
+*.iso
+
+# Firmware UEFI local
+efi/*.fd
+efi/*.img
+
+# Backups e Logs
+backups/
+logs/*.log
+logs/session_*.log
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Arquivos temporários do sistema
+.DS_Store
+Thumbs.db
