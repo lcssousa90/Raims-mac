@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # REIMS - Script de Pré-Voo (Pre-Flight Check)
-# Valida todos os requisitos de hardware e kernel ANTES de tentar iniciar a VM.
-# Se algo estiver errado, indica o comando exato de correção.
+# Valida todos os requisitos de hardware, udmabuf (teste real ioctl),
+# Vulkan, PipeWire, QEMU e firmware ANTES de iniciar a VM.
 # ==============================================================================
 
 set -uo pipefail
@@ -12,6 +12,9 @@ AZUL="\e[1;34m"
 AMARELO="\e[1;33m"
 VERMELHO="\e[1;31m"
 RESET="\e[0m"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ -f "$SCRIPT_DIR/reims.env" ] && source "$SCRIPT_DIR/reims.env"
 
 ERROS=0
 AVISOS=0
@@ -44,31 +47,93 @@ else
     info "Correção: sudo modprobe kvm && sudo modprobe kvm_amd"
 fi
 
-if [ -r /dev/kvm ]; then
-    ok "Permissão de leitura em /dev/kvm correta"
+if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+    ok "Permissão de leitura/escrita em /dev/kvm correta"
 else
-    fail "Sem permissão de leitura em /dev/kvm"
+    fail "Sem permissão completa em /dev/kvm"
     info "Correção: sudo usermod -aG kvm \$USER && newgrp kvm"
 fi
 
 echo ""
 
-# ── 2. MEMÓRIA COMPARTILHADA (vGPU) ─────────────────────────────────────────
-echo -e "${AZUL}[ vGPU & udmabuf ]${RESET}"
+# ── 2. MEMÓRIA COMPARTILHADA (vGPU / udmabuf) ─────────────────────────────────
+echo -e "${AZUL}[ vGPU & udmabuf (Zero-Copy DMA) ]${RESET}"
 
 if [ -e /dev/udmabuf ]; then
-    ok "/dev/udmabuf carregado — Memória Zero-Copy pronta para o Reims"
+    ok "/dev/udmabuf carregado"
 else
     fail "/dev/udmabuf não encontrado — a paravirtualização gráfica vai falhar"
     info "Correção: sudo modprobe udmabuf"
-    info "Persistência: echo 'udmabuf' | sudo tee -a /etc/modules"
 fi
 
-if [ -r /dev/udmabuf ]; then
-    ok "Permissão de acesso ao udmabuf correta"
+if [ -r /dev/udmabuf ] && [ -w /dev/udmabuf ]; then
+    ok "Permissão de acesso ao /dev/udmabuf correta"
 else
-    fail "Sem permissão de leitura em /dev/udmabuf"
+    fail "Sem permissão de leitura/escrita em /dev/udmabuf"
     info "Correção: sudo tee /etc/udev/rules.d/99-udmabuf.rules <<< 'KERNEL==\"udmabuf\", SUBSYSTEM==\"misc\", MODE=\"0666\"'"
+fi
+
+if [ -f /sys/module/udmabuf/parameters/size_limit_mb ]; then
+    SIZE_LIM=$(cat /sys/module/udmabuf/parameters/size_limit_mb 2>/dev/null || echo "0")
+    LIST_LIM=$(cat /sys/module/udmabuf/parameters/list_limit 2>/dev/null || echo "0")
+    if [ "$SIZE_LIM" -ge 2048 ]; then
+        fail "udmabuf size_limit_mb=${SIZE_LIM} (>= 2048 causa overflow de 32-bit no kernel -> EINVAL!)"
+        info "Correção: echo 1024 | sudo tee /sys/module/udmabuf/parameters/size_limit_mb"
+    elif [ "$SIZE_LIM" -le 0 ]; then
+        fail "udmabuf size_limit_mb=${SIZE_LIM} inválido"
+    else
+        ok "Parâmetros udmabuf seguros: size_limit_mb=${SIZE_LIM}, list_limit=${LIST_LIM}"
+    fi
+fi
+
+if [ -r /dev/udmabuf ] && [ -w /dev/udmabuf ] && command -v python3 >/dev/null 2>&1; then
+    IOCTL_OUT=$(python3 - <<'PY' 2>&1
+import os, fcntl, ctypes, ctypes.util
+
+F_ADD_SEALS = 1033
+F_SEAL_SHRINK = 0x0002
+UDMABUF_CREATE = 0x40187542
+
+class UdmabufCreate(ctypes.Structure):
+    _fields_ = [
+        ("memfd", ctypes.c_uint32),
+        ("flags", ctypes.c_uint32),
+        ("offset", ctypes.c_uint64),
+        ("size", ctypes.c_uint64),
+    ]
+
+libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+memfd = os.memfd_create("reims_preflight", 2)
+os.ftruncate(memfd, 4096)
+fcntl.fcntl(memfd, F_ADD_SEALS, F_SEAL_SHRINK)
+ufd = os.open("/dev/udmabuf", os.O_RDWR)
+req = UdmabufCreate(memfd=memfd, flags=0, offset=0, size=4096)
+dmabuf = libc.ioctl(ufd, ctypes.c_ulong(UDMABUF_CREATE), ctypes.byref(req))
+if dmabuf < 0:
+    err = ctypes.get_errno()
+    os.close(ufd)
+    os.close(memfd)
+    raise OSError(err, os.strerror(err))
+os.close(dmabuf)
+os.close(ufd)
+os.close(memfd)
+print("OK")
+PY
+    )
+    if [ "$IOCTL_OUT" = "OK" ]; then
+        ok "Teste real ioctl(UDMABUF_CREATE) passou — Zero-Copy DMA funcional"
+    else
+        fail "Teste real ioctl(UDMABUF_CREATE) falhou: $IOCTL_OUT"
+        info "Verifique /sys/module/udmabuf/parameters/size_limit_mb (use 1024)"
+    fi
+fi
+
+MAX_MAP_NOW=$(cat /proc/sys/vm/max_map_count 2>/dev/null || echo "0")
+if [ "$MAX_MAP_NOW" -ge 2097152 ]; then
+    ok "vm.max_map_count adequado ($MAX_MAP_NOW)"
+else
+    warn "vm.max_map_count baixo ($MAX_MAP_NOW; recomendado >= 4194304)"
+    info "Correção: sudo sysctl -w vm.max_map_count=4194304"
 fi
 
 echo ""
@@ -79,8 +144,8 @@ echo -e "${AZUL}[ GPU & Driver Vulkan ]${RESET}"
 if command -v vulkaninfo &>/dev/null; then
     ok "vulkan-tools instalado"
     if vulkaninfo --summary 2>/dev/null | grep -q "NVIDIA"; then
-        GPU_NAME=$(vulkaninfo --summary 2>/dev/null | grep "GPU" | head -1 | sed 's/.*GPU[0-9]*: //')
-        ok "RTX 3070 respondendo ao Vulkan: $GPU_NAME"
+        GPU_NAME=$(vulkaninfo --summary 2>/dev/null | grep "deviceName" | head -1 | awk -F'= ' '{print $2}')
+        ok "GPU respondendo ao Vulkan: $GPU_NAME"
     else
         warn "Driver Vulkan instalado, mas GPU NVIDIA não listada"
         info "Correção: sudo apt install -y nvidia-driver libvulkan1 && reboot"
@@ -90,20 +155,37 @@ else
     info "Correção: sudo apt install -y vulkan-tools libvulkan1 mesa-vulkan-drivers"
 fi
 
-NVIDIA_ICD="/usr/share/vulkan/icd.d/nvidia_icd.json"
+NVIDIA_ICD="${VK_ICD:-/usr/share/vulkan/icd.d/nvidia_icd.json}"
 if [ -f "$NVIDIA_ICD" ]; then
-    ok "ICD NVIDIA encontrado em $NVIDIA_ICD"
+    ok "ICD Vulkan encontrado em $NVIDIA_ICD"
 else
-    fail "Arquivo ICD da NVIDIA não encontrado — Vulkan vai usar fallback lento (Mesa)"
+    fail "Arquivo ICD da NVIDIA não encontrado em $NVIDIA_ICD"
     info "Correção: sudo apt install -y libvulkan-dev nvidia-driver"
 fi
 
 echo ""
 
-# ── 4. QEMU E OVMF ──────────────────────────────────────────────────────────
-echo -e "${AZUL}[ QEMU & Firmware UEFI ]${RESET}"
+# ── 4. ÁUDIO PIPEWIRE ────────────────────────────────────────────────────────
+echo -e "${AZUL}[ Áudio PipeWire ]${RESET}"
 
-if command -v qemu-system-x86_64 &>/dev/null; then
+PW_SOCK="${PIPEWIRE_RUNTIME_DIR:-/run/user/1000}/pipewire-0"
+if [ -S "$PW_SOCK" ]; then
+    ok "Socket PipeWire ativo em $PW_SOCK"
+else
+    warn "Socket PipeWire não encontrado em $PW_SOCK — áudio da VM pode não funcionar"
+    info "Correção: sudo loginctl enable-linger mac && systemctl --user -M mac@ start pipewire wireplumber"
+fi
+
+echo ""
+
+# ── 5. QEMU, OVMF E DISCOS ───────────────────────────────────────────────────
+echo -e "${AZUL}[ QEMU, Firmware UEFI & Discos ]${RESET}"
+
+QEMU_REIMS="/root/.local/share/reims-ctl/qemu/current/bin/qemu-system-x86_64"
+if [ "${USE_REIMS_CTL:-true}" = "true" ] && [ -x "$QEMU_REIMS" ]; then
+    QEMU_VER=$("$QEMU_REIMS" --version | head -1)
+    ok "QEMU Reims-vGPU ativo: $QEMU_VER"
+elif command -v qemu-system-x86_64 &>/dev/null; then
     QEMU_VER=$(qemu-system-x86_64 --version | head -1)
     ok "QEMU instalado: $QEMU_VER"
 else
@@ -111,45 +193,31 @@ else
     info "Correção: sudo apt install -y qemu-system-x86"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-if [ -f "$SCRIPT_DIR/efi/OVMF_CODE.fd" ]; then
-    ok "OVMF_CODE.fd encontrado em efi/"
+CTL_DIR="${REIMS_CTL_VM_DIR:-/root/.local/share/reims-ctl/vms/mac}"
+if [ "${USE_REIMS_CTL:-true}" = "true" ] && [ -d "$CTL_DIR" ]; then
+    info "Modo reims-ctl detectado ($CTL_DIR)"
+    [ -f "$CTL_DIR/OVMF_CODE.fd" ]  && ok "OVMF_CODE.fd presente em $CTL_DIR" || fail "OVMF_CODE.fd ausente em $CTL_DIR"
+    [ -f "$CTL_DIR/OVMF_VARS.fd" ]  && ok "OVMF_VARS.fd presente em $CTL_DIR" || fail "OVMF_VARS.fd ausente em $CTL_DIR"
+    [ -f "$CTL_DIR/opencore.qcow2" ] && ok "opencore.qcow2 presente em $CTL_DIR" || fail "opencore.qcow2 ausente em $CTL_DIR"
+    if [ -f "$CTL_DIR/disk.qcow2" ]; then
+        SIZE=$(qemu-img info "$CTL_DIR/disk.qcow2" 2>/dev/null | grep "virtual size" | awk '{print $3, $4}')
+        ok "disk.qcow2 encontrado ($SIZE)"
+    else
+        fail "disk.qcow2 ausente em $CTL_DIR"
+    fi
 else
-    fail "efi/OVMF_CODE.fd não encontrado — VM não vai bootar"
-    info "Correção: Execute ./reims setup para copiar automaticamente"
-fi
-
-if [ -f "$SCRIPT_DIR/efi/OVMF_VARS.fd" ]; then
-    ok "OVMF_VARS.fd encontrado em efi/"
-else
-    fail "efi/OVMF_VARS.fd não encontrado"
-    info "Correção: Execute ./reims setup"
-fi
-
-if [ -f "$SCRIPT_DIR/efi/OpenCore_Tahoe.img" ]; then
-    ok "OpenCore_Tahoe.img encontrado em efi/"
-else
-    warn "efi/OpenCore_Tahoe.img não encontrado — necessário antes de iniciar"
-    info "Adicione a imagem EFI do OpenCore configurada para o Tahoe"
-fi
-
-echo ""
-
-# ── 5. IMAGENS DE DISCO ──────────────────────────────────────────────────────
-echo -e "${AZUL}[ Discos da VM ]${RESET}"
-
-if [ -f "$SCRIPT_DIR/vms/tahoe_base.qcow2" ]; then
-    SIZE=$(qemu-img info "$SCRIPT_DIR/vms/tahoe_base.qcow2" 2>/dev/null | grep "virtual size" | awk '{print $3, $4}')
-    ok "tahoe_base.qcow2 encontrado ($SIZE)"
-else
-    warn "tahoe_base.qcow2 não encontrado — execute './reims create' para criar"
-fi
-
-if [ -f "$SCRIPT_DIR/vms/tahoe_live.qcow2" ]; then
-    ok "tahoe_live.qcow2 (camada ativa) encontrado"
-else
-    warn "tahoe_live.qcow2 não encontrado — será criado automaticamente no primeiro start"
+    if [ "${USE_REIMS_CTL:-true}" = "true" ] && [ "$EUID" -ne 0 ]; then
+        warn "Execute com sudo para inspecionar $CTL_DIR (reims-ctl)"
+    fi
+    [ -f "$SCRIPT_DIR/${OVMF_CODE:-efi/OVMF_CODE.fd}" ] && ok "OVMF_CODE.fd encontrado" || fail "efi/OVMF_CODE.fd não encontrado"
+    [ -f "$SCRIPT_DIR/${OVMF_VARS:-efi/OVMF_VARS.fd}" ] && ok "OVMF_VARS.fd encontrado" || fail "efi/OVMF_VARS.fd não encontrado"
+    [ -f "$SCRIPT_DIR/${OPENCORE_IMG:-efi/OpenCore_Tahoe.img}" ] && ok "OpenCore encontrado" || warn "${OPENCORE_IMG:-efi/OpenCore_Tahoe.img} não encontrado"
+    if [ -f "$SCRIPT_DIR/${DISCO_BASE:-vms/tahoe_base.qcow2}" ]; then
+        SIZE=$(qemu-img info "$SCRIPT_DIR/${DISCO_BASE:-vms/tahoe_base.qcow2}" 2>/dev/null | grep "virtual size" | awk '{print $3, $4}')
+        ok "Disco base encontrado ($SIZE)"
+    else
+        warn "Disco base não encontrado — execute './reims create' ou configure USE_REIMS_CTL=true"
+    fi
 fi
 
 echo ""

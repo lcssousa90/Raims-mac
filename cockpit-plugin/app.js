@@ -8,7 +8,7 @@ const REIMS_DIR = '/home/' + cockpit.user || '/root';
 let REIMS_PATH = '';
 
 // Detecta o caminho do projeto automaticamente
-cockpit.spawn(['bash', '-c', 'find /home -name "reims" -type f 2>/dev/null | head -1 || echo ""'])
+cockpit.spawn(['bash', '-c', 'find /root/Raims-mac /root/reims-mac /home -maxdepth 3 -name "reims" -type f 2>/dev/null | head -1 || echo ""'], { superuser: 'try' })
     .done(path => {
         REIMS_PATH = path.trim().replace('/reims', '');
         log('ok', `Projeto REIMS encontrado em: ${REIMS_PATH}`);
@@ -38,7 +38,7 @@ function limparLog() {
 // ── Status da VM ─────────────────────────────────────────────────────────────
 function verificarStatus() {
     const pill = document.getElementById('vm-status-pill');
-    cockpit.spawn(['bash', '-c', 'pgrep -x qemu-system-x86_64 > /dev/null 2>&1 && echo running || echo stopped'])
+    cockpit.spawn(['bash', '-c', 'pidof qemu-system-x86_64 > /dev/null 2>&1 && echo running || echo stopped'])
         .done(result => {
             const rodando = result.trim() === 'running';
             pill.textContent = rodando ? '● Rodando' : '○ Parada';
@@ -86,7 +86,7 @@ function reimsCmd(cmd, args) {
 function killVM() {
     if (!confirm('Parar o macOS Tahoe agora? Certifique-se de salvar seus arquivos antes.')) return;
     log('aviso', 'Encerrando processo da VM...');
-    cockpit.spawn(['bash', '-c', 'pkill -f qemu-system-x86_64 || true'], { superuser: 'try' })
+    cockpit.spawn(['bash', '-c', '/usr/local/bin/reims-ctl stop mac --timeout 20 || pkill -f qemu-system-x86_64 || true'], { superuser: 'try' })
         .done(() => { log('ok', 'VM encerrada.'); verificarStatus(); })
         .fail(() => { log('erro', 'Não foi possível encerrar a VM.'); });
 }
@@ -112,7 +112,7 @@ function atualizarMetricas() {
 
     // RAM e CPU do host
     cockpit.spawn(['bash', '-c',
-        "free -m | awk '/^Mem:/{print $3, $2}'; top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | sed 's/%us,//'"
+        "LC_ALL=C free -m | awk '/^Mem:/{print $3, $2}'; LC_ALL=C top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | sed 's/%us,//'"
     ]).done(data => {
         const linhas = data.trim().split('\n');
         if (linhas.length >= 2) {

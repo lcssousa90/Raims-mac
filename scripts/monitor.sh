@@ -27,7 +27,7 @@ RESET="\e[0m"
 CLEAR_LINE="\r\e[K"
 
 # Verificar dependências
-for dep in nvidia-smi bc; do
+for dep in nvidia-smi; do
     if ! command -v "$dep" &>/dev/null; then
         echo -e "${VERMELHO}[ERRO]${RESET} Dependência ausente: $dep"
         [ "$dep" = "nvidia-smi" ] && echo "       Instale o driver NVIDIA: sudo apt install -y nvidia-driver"
@@ -98,8 +98,8 @@ while $RODANDO; do
     FAN=$(echo "$DADOS" | awk -F', ' '{print $8}' | tr -d ' ')
 
     # Coletar uso de CPU e RAM do host
-    CPU_USO=$(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//' | tr -d ' ' | cut -d'.' -f1 2>/dev/null || echo "0")
-    RAM_INFO=$(free -m | awk '/^Mem:/{printf "%d %d", $3, $2}')
+    CPU_USO=$(LC_ALL=C top -bn1 | grep "Cpu(s)" | awk '{print $2}' | sed 's/%us,//' | tr -d ' ' | cut -d'.' -f1 2>/dev/null || echo "0")
+    RAM_INFO=$(LC_ALL=C free -m | awk '/^Mem:/{printf "%d %d", $3, $2}')
     RAM_USADO=$(echo "$RAM_INFO" | awk '{print $1}')
     RAM_TOTAL=$(echo "$RAM_INFO" | awk '{print $2}')
 

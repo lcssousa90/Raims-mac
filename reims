@@ -193,8 +193,10 @@ _ajuda() {
     printf "  ${VERDE}%-18s${RESET} %s\n" "preflight" "Verificar requisitos antes de iniciar"
     printf "  ${VERDE}%-18s${RESET} %s\n" "doctor"   "Diagnóstico rápido de hardware"
     printf "  ${VERDE}%-18s${RESET} %s\n" "monitor"  "Monitor de GPU e CPU em tempo real"
-    printf "  ${VERDE}%-18s${RESET} %s\n" "backup"   "Criar backup da imagem base"
-    printf "  ${VERDE}%-18s${RESET} %s\n" "restore"  "Restaurar backup anterior"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "efi [acao]" "Auditar (audit) ou atualizar kexts gráficas (update-kexts)"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "backup [golden]" "Backup da imagem base ou snapshot completo reims-ctl"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "restore [golden]" "Restaurar backup base ou Golden Backup"
+    printf "  ${VERDE}%-18s${RESET} %s\n" "rollback" "Executar reversão de emergência (/root/reverte-tudo.sh)"
     printf "  ${VERDE}%-18s${RESET} %s\n" "reset"    "Restaurar estado limpo (anti-quebra)"
     printf "  ${VERDE}%-18s${RESET} %s\n" "logs [modo]" "Ver logs (tail | erros | lista | limpar)"
     printf "  ${VERDE}%-18s${RESET} %s\n" "cockpit"     "Instalar e ativar o Painel Web Cockpit (porta 9090)"
@@ -233,8 +235,16 @@ case "$COMANDO" in
     setup)   bash tools/setup-host.sh ;;
     create)  python3 tools/fetch-macos.py -v tahoe ;;
     reset)   bash scripts/reset-overlay.sh ;;
-    backup)  bash scripts/backup.sh "${2:-manual}" ;;
-    restore) bash scripts/restore.sh ;;
+    efi)     bash scripts/efi-manager.sh "${2:-audit}" ;;
+    backup)  bash scripts/backup.sh "${2:-manual}" "${3:-}" ;;
+    restore) bash scripts/restore.sh "${2:-base}" ;;
+    rollback)
+        if [ -x /root/reverte-tudo.sh ]; then
+            bash /root/reverte-tudo.sh
+        else
+            bash scripts/restore.sh golden
+        fi
+        ;;
     preflight) bash scripts/preflight.sh ;;
     monitor) bash scripts/monitor.sh ;;
     logs)    bash scripts/logs.sh "${2:-}" ;;
@@ -243,11 +253,26 @@ case "$COMANDO" in
     cockpit) bash cockpit-plugin/install.sh ;;
     ai|agy)  bash tools/instalar-antigravity.sh ;;
     doctor)
+        [ -f "reims.env" ] && source reims.env
         echo -e "${AZUL}=== Diagnóstico Rápido ===${RESET}"
         [ -e /dev/kvm ]    && echo -e "${VERDE}[✓]${RESET} KVM Ativo"           || echo -e "${VERMELHO}[✗]${RESET} KVM: execute ./reims setup"
         [ -e /dev/udmabuf ] && echo -e "${VERDE}[✓]${RESET} udmabuf Carregado"  || echo -e "${AMARELO}[!]${RESET} udmabuf: sudo modprobe udmabuf"
+        if [ -f /sys/module/udmabuf/parameters/size_limit_mb ]; then
+            SZ=$(cat /sys/module/udmabuf/parameters/size_limit_mb 2>/dev/null || echo 0)
+            if [ "$SZ" -le 2047 ] && [ "$SZ" -gt 0 ]; then
+                echo -e "${VERDE}[✓]${RESET} udmabuf size_limit_mb=${SZ} (sem overflow 32-bit)"
+            else
+                echo -e "${VERMELHO}[✗]${RESET} udmabuf size_limit_mb=${SZ} (>= 2048 causa EINVAL! Ajuste para 1024)"
+            fi
+        fi
+        PW_SOCK="${PIPEWIRE_RUNTIME_DIR:-/run/user/1000}/pipewire-0"
+        [ -S "$PW_SOCK" ] && echo -e "${VERDE}[✓]${RESET} PipeWire ativo ($PW_SOCK)" || echo -e "${AMARELO}[!]${RESET} PipeWire ausente em $PW_SOCK"
         command -v vulkaninfo &>/dev/null && echo -e "${VERDE}[✓]${RESET} Vulkan Instalado" || echo -e "${AMARELO}[!]${RESET} Vulkan: sudo apt install -y vulkan-tools"
-        groups | grep -q "kvm" && echo -e "${VERDE}[✓]${RESET} Usuário no grupo kvm" || echo -e "${AMARELO}[!]${RESET} Grupo kvm: sudo usermod -aG kvm \$USER"
+        if [ "$EUID" -eq 0 ] || groups | grep -q "kvm"; then
+            echo -e "${VERDE}[✓]${RESET} Permissão KVM/root OK"
+        else
+            echo -e "${AMARELO}[!]${RESET} Grupo kvm: sudo usermod -aG kvm \$USER"
+        fi
         [ -f "reims.env" ] && echo -e "${VERDE}[✓]${RESET} reims.env encontrado" || echo -e "${VERMELHO}[✗]${RESET} reims.env ausente"
         ;;
     ajuda|help|--help|-h) _ajuda ;;
