@@ -1,0 +1,25 @@
+[Unit]
+Description=MothOS — Host & macOS VFIO VM Control Center
+After=network-online.target local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/mothos
+EnvironmentFile=-/etc/mothos.env
+ExecStart=/usr/bin/python3 /opt/mothos/backend/run.py
+Restart=on-failure
+RestartSec=3
+
+# Host Isolation: pin MothOS to host cores only (leave vCPU cores 1-4,7-10 untouched)
+CPUAffinity=0 5 6 11
+MemoryMax=128M
+
+# Cleanly let detached child scopes (VM scripts, dpkg, apt, terminal) survive reloads
+KillMode=process
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

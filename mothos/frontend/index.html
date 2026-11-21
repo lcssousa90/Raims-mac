@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#070b14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="MothOS">
+  <meta name="description" content="MothOS — Central Mini-OS de controle VFIO, VM macOS e administração do host Linux.">
+  <title>MothOS</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="/icons/mothos-icon.svg">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <div id="bg-mesh" aria-hidden="true">
+    <div class="mesh-orb orb-1"></div>
+    <div class="mesh-orb orb-2"></div>
+    <div class="mesh-orb orb-3"></div>
+  </div>
+
+  <!-- Lock Screen / PIN Pad -->
+  <section id="lock-screen" class="lock-screen hidden" aria-label="Tela de bloqueio MothOS">
+    <div class="lock-card glass-panel" id="lock-card">
+      <div class="lock-brand">
+        <img src="/icons/mothos-icon.svg" alt="MothOS" class="lock-logo">
+        <h1 class="lock-title">MothOS</h1>
+        <p class="lock-subtitle" id="lock-subtitle">Digite o PIN de acesso</p>
+      </div>
+
+      <div class="pin-dots" id="pin-dots" aria-live="polite">
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+        <span class="pin-dot"></span>
+      </div>
+
+      <div class="pin-error" id="pin-error" role="alert"></div>
+
+      <div class="pin-keypad" id="pin-keypad">
+        <button type="button" class="pin-key" data-digit="1"><span>1</span></button>
+        <button type="button" class="pin-key" data-digit="2"><span>2</span><small>ABC</small></button>
+        <button type="button" class="pin-key" data-digit="3"><span>3</span><small>DEF</small></button>
+        <button type="button" class="pin-key" data-digit="4"><span>4</span><small>GHI</small></button>
+        <button type="button" class="pin-key" data-digit="5"><span>5</span><small>JKL</small></button>
+        <button type="button" class="pin-key" data-digit="6"><span>6</span><small>MNO</small></button>
+        <button type="button" class="pin-key" data-digit="7"><span>7</span><small>PQRS</small></button>
+        <button type="button" class="pin-key" data-digit="8"><span>8</span><small>TUV</small></button>
+        <button type="button" class="pin-key" data-digit="9"><span>9</span><small>WXYZ</small></button>
+        <button type="button" class="pin-key pin-key-action" data-action="clear" title="Limpar">Limpar</button>
+        <button type="button" class="pin-key" data-digit="0"><span>0</span></button>
+        <button type="button" class="pin-key pin-key-action" data-action="backspace" title="Apagar" aria-label="Apagar dígito">⌫</button>
+      </div>
+
+      <button type="button" class="btn btn-primary btn-full lock-submit" id="pin-submit-btn">
+        Desbloquear
+      </button>
+    </div>
+  </section>
+
+  <!-- Main Mini-OS Shell (Tab Navigation) -->
+  <div id="os-shell" class="os-shell hidden">
+    <div class="os-header-stack">
+      <!-- Top Status Bar -->
+      <header class="status-bar glass-bar">
+        <div class="status-left">
+          <button type="button" class="brand-btn" id="home-brand-btn" title="Voltar para a aba Início">
+            <img src="/icons/mothos-icon.svg" alt="" class="status-logo">
+            <span class="status-brand">MothOS</span>
+          </button>
+          <span class="status-host" id="status-hostname">conectando...</span>
+        </div>
+
+        <div class="status-right">
+          <button type="button" class="btn btn-xs btn-cyan pwa-install-btn hidden" id="pwa-install-btn" title="Instalar MothOS no Android">
+            <span class="btn-icon" id="pwa-install-icon"></span>
+            <span id="pwa-install-label">Instalar</span>
+          </button>
+          <span class="pill pill-muted" id="status-vm-pill" data-open-tab="vm" role="button" tabindex="0" title="Abrir aba VM &amp; Boot">
+            <span class="dot"></span>
+            <span class="pill-text">VM —</span>
+          </span>
+          <span class="pill pill-ws" id="status-ws-pill" data-open-tab="monitor" role="button" tabindex="0" title="Abrir aba Monitor">
+            <span class="dot pulse"></span>
+            <span class="pill-text">WS</span>
+          </span>
+          <button type="button" class="icon-btn" id="lock-btn" title="Bloquear / Sair" aria-label="Bloquear e sair">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Top Tab Bar -->
+      <nav class="os-tabs glass-bar" aria-label="Abas do MothOS">
+        <div id="os-tabs" class="os-tabs-inner" role="tablist"></div>
+      </nav>
+    </div>
+
+    <!-- Main Full-Page Tab Content -->
+    <main id="tab-stage" class="tab-stage">
+      <!-- Android Chrome PWA Install Assistant -->
+      <section id="pwa-install-panel" class="pwa-install-panel glass-card hidden" aria-label="Instalar MothOS no Android">
+        <div class="pwa-panel-head">
+          <div>
+            <h3 class="card-title">Instalar MothOS no Android (Chrome)</h3>
+            <p class="card-subtitle">App em tela cheia sem barra de endereço com ícone próprio</p>
+          </div>
+          <div class="pwa-check-pills">
+            <span class="pill pill-xs pill-muted" id="pwa-check-https">HTTPS: —</span>
+            <span class="pill pill-xs pill-muted" id="pwa-check-sw">SW: —</span>
+            <span class="pill pill-xs pill-muted" id="pwa-check-prompt">Prompt: —</span>
+          </div>
+        </div>
+
+        <div class="pwa-native-row hidden" id="pwa-native-row">
+          <button type="button" class="btn btn-sm btn-emerald" id="pwa-trigger-native-btn">
+            Instalar MothOS agora (Chrome)
+          </button>
+        </div>
+
+        <div class="pwa-steps-box">
+          <div class="pwa-step-title">Passo a passo para WebAPK completo (HTTPS confiável na rede local):</div>
+          <ol class="pwa-steps-list">
+            <li>Baixe o certificado raiz local (<strong>mothos-ca.crt</strong>) e instale em <em>Configurações → Segurança / Privacidade → Criptografia e credenciais → Instalar um certificado → Certificado de CA</em>.</li>
+            <li>Abra o painel em <strong>HTTPS</strong> (<code id="pwa-https-url">https://192.168.18.10/</code>).</li>
+            <li>Toque em <strong>Instalar App</strong> (ou menu <strong>⋮ → Adicionar à tela inicial → Instalar</strong> no Chrome).</li>
+          </ol>
+          <div class="pwa-actions-row">
+            <a href="/mothos-ca.crt" download="mothos-ca.crt" class="btn btn-sm btn-primary" id="pwa-ca-download-btn">1. Baixar Certificado CA</a>
+            <a href="#" class="btn btn-sm btn-cyan" id="pwa-open-https-btn">2. Abrir em HTTPS</a>
+          </div>
+        </div>
+
+        <div class="pwa-fallback-foot">
+          <span class="pwa-fallback-note">Alternativa sem CA: no Chrome, ative <code>chrome://flags/#unsafely-treat-insecure-origin-as-secure</code> para a origem HTTP atual ou use <strong>⋮ → Adicionar à tela inicial</strong>.</span>
+          <div class="pwa-actions-row">
+            <button type="button" class="btn btn-xs btn-ghost" id="pwa-copy-origin-btn">Copiar origem HTTP</button>
+            <button type="button" class="btn btn-xs btn-ghost" id="pwa-panel-close-btn">Fechar</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Aba Início (Área Customizável de Widgets) -->
+      <section id="tab-panel-home" class="tab-panel" role="tabpanel" aria-label="Início">
+        <div class="home-header">
+          <div>
+            <h2 class="home-greeting" id="home-greeting">Painel do Sistema</h2>
+            <p class="home-meta" id="home-meta">Aguardando telemetria em tempo real...</p>
+          </div>
+          <div class="home-actions">
+            <span class="badge badge-dev hidden" id="dev-mode-badge">DEV MODE</span>
+            <button type="button" class="btn btn-sm btn-cyan-soft" id="widgets-manage-btn">+ Widgets</button>
+            <button type="button" class="btn btn-sm btn-ghost" id="widgets-edit-btn">Organizar</button>
+          </div>
+        </div>
+
+        <section id="widget-picker-panel" class="widget-picker-panel glass-panel hidden" aria-label="Galeria de Widgets"></section>
+
+        <section id="widget-board" class="widget-board" aria-label="Área de widgets do Início"></section>
+      </section>
+
+      <!-- Aba Selecionada (Conteúdo Completo na Página) -->
+      <section id="tab-panel-app" class="tab-panel hidden" role="tabpanel" aria-labelledby="tab-page-title">
+        <div class="tab-page-head">
+          <span class="tab-page-icon" id="tab-page-icon"></span>
+          <div class="tab-page-titles">
+            <h2 class="tab-page-title" id="tab-page-title">Aba</h2>
+            <p class="tab-page-sub" id="tab-page-subtitle"></p>
+          </div>
+        </div>
+        <div id="tab-app-body" class="tab-app-body"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 2-Step Confirmation Modal -->
+  <div id="confirm-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div class="modal-card glass-panel">
+      <div class="modal-step-indicator">
+        <span class="step-pill active" id="confirm-step-1">1. Revisar</span>
+        <span class="step-arrow">→</span>
+        <span class="step-pill" id="confirm-step-2">2. Confirmar</span>
+      </div>
+      <h3 class="modal-title" id="confirm-title">Confirmar ação</h3>
+      <p class="modal-message" id="confirm-message"></p>
+      <div class="modal-detail hidden" id="confirm-detail"></div>
+      <div class="modal-step2-warn hidden" id="confirm-step2-warn">
+        Confirmação final necessária: clique no botão abaixo para executar agora.
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="confirm-cancel-btn">Cancelar</button>
+        <button type="button" class="btn btn-danger" id="confirm-ok-btn">Continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input Prompt Modal -->
+  <div id="prompt-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="prompt-title">
+    <form class="modal-card glass-panel" id="prompt-form">
+      <h3 class="modal-title" id="prompt-title">Entrada</h3>
+      <label class="field-label" for="prompt-input" id="prompt-label"></label>
+      <input type="text" id="prompt-input" class="glass-input" autocomplete="off" spellcheck="false" required>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="prompt-cancel-btn">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="prompt-ok-btn">Salvar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>
