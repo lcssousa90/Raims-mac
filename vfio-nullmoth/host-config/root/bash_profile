@@ -1,0 +1,16 @@
+export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+if [ -z "$DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
+    if [ -f /root/.boot_nullmoth_vfio ] || [ -f /root/.nullmoth_vfio_default ]; then
+        rm -f /root/.boot_nullmoth_vfio
+        echo "Iniciando macOS (RTX 3070 VFIO / NullMoth 3.0) em 3 segundos... (Pressione Ctrl+C para cancelar)"
+        sleep 3
+        systemd-run --unit=nullmoth-vfio --property=KillMode=process --property=StandardOutput=file:/root/nullmoth_vfio_launch.log --property=StandardError=inherit --no-block /root/iniciar-nullmoth-vfio.sh
+        exec sleep infinity
+    fi
+    echo "Iniciando macOS (Reims vGPU) em 3 segundos... (Pressione Ctrl+C para cancelar e usar o terminal Linux)"
+    sleep 3
+    startx
+fi
+
+# Added by Antigravity CLI installer
+export PATH="/root/.local/bin:$PATH"

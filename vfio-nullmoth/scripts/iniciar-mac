@@ -1,0 +1,25 @@
+#!/bin/bash
+export PATH="/root/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+export XDG_RUNTIME_DIR="/run/user/0"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 0700 "$XDG_RUNTIME_DIR"
+
+# Sobe áudio
+pgrep -x "pipewire" > /dev/null || pipewire &
+pgrep -x "wireplumber" > /dev/null || wireplumber &
+
+# Parâmetros de vídeo para RTX 3070
+export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/nvidia_icd.json
+export WLR_NO_HARDWARE_CURSORS=1
+export LIBSEAT_BACKEND=builtin
+
+cat << 'EOX' > /tmp/mac-session.sh
+#!/bin/sh
+xset -dpms
+xset s off
+(sleep 1 && reims-ctl start mac) &
+exec openbox-session
+EOX
+chmod +x /tmp/mac-session.sh
+
+exec xinit /tmp/mac-session.sh -- :0

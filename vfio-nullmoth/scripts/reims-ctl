@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+export PATH="/root/.cargo/bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+export HOME="/root"
+
+if [ -z "$DISPLAY" ] && [ -e /tmp/.X11-unix/X0 ]; then
+    export DISPLAY=":0"
+fi
+
+if [ -z "$XAUTHORITY" ]; then
+    export XAUTHORITY="/root/.Xauthority"
+fi
+
+if [ -z "$XDG_RUNTIME_DIR" ] || [ ! -d "$XDG_RUNTIME_DIR" ]; then
+    if [ -d "/run/user/1000" ]; then
+        export XDG_RUNTIME_DIR="/run/user/1000"
+    else
+        export XDG_RUNTIME_DIR="/run/user/0"
+    fi
+fi
+
+export VK_DRIVER_FILES="/usr/share/vulkan/icd.d/nvidia_icd.json"
+
+args=()
+for arg in "$@"; do
+    if [ "$arg" = "MacOS" ]; then
+        args+=("mac")
+    else
+        args+=("$arg")
+    fi
+done
+
+if [ "$(id -u)" -ne 0 ]; then
+    exec sudo HOME=/root DISPLAY="${DISPLAY:-:0}" XAUTHORITY="${XAUTHORITY:-/root/.Xauthority}" XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/1000}" VK_DRIVER_FILES="$VK_DRIVER_FILES" /root/.cargo/bin/reims-ctl "${args[@]}"
+else
+    exec /root/.cargo/bin/reims-ctl "${args[@]}"
+fi

@@ -1,0 +1,12 @@
+[Unit]
+Description=Reims vGPU Hardware & GPU Performance Tuning
+After=multi-user.target nvidia-persistenced.service
+Before=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/reims-hardware-tune.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

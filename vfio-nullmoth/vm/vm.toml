@@ -1,0 +1,41 @@
+name = "mac"
+profile = "q35-x86_64"
+cpus = 6
+memory_mib = 10240
+disk = "disk.qcow2"
+disk_format = "qcow2"
+stop_timeout_secs = 90
+extra_args = [
+    "-device",
+    "vfio-pci,host=05:00.0",
+]
+graphics = "reims-vgpu"
+
+[display]
+resolution = "1920x1080"
+borderless = true
+
+[gpu]
+
+[audio]
+enabled = true
+backend = "pipewire"
+
+[network]
+enabled = true
+mac = "52:54:00:ce:12:6f"
+ssh_port = 2222
+
+[logs]
+enabled = true
+level = "info"
+
+[q35]
+opencore = "opencore.qcow2"
+opencore_format = "qcow2"
+firmware_code = "OVMF_CODE.fd"
+firmware_vars = "OVMF_VARS.fd"
+cpu_model = "Skylake-Client-noTSX-IBRS"
+cpu_flags = "+ssse3,+sse4.2,+popcnt,+avx,+aes,+xsave,+xsaveopt,check"
+disk_controller = "nvme"
+disk_port = 3

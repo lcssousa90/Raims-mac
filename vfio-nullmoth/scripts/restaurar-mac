@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# SCRIPT DE RESTAURACAO COMPLETA DO MACOS (REIMS VGPU + WIFI + BLUETOOTH)
+# Uso: sudo restaurar-mac [--force-opencore]
+# ==============================================================================
+
+set -e
+
+if [ "$EUID" -ne 0 ]; then
+    echo "Erro: Execute como root (sudo restaurar-mac)"
+    exit 1
+fi
+
+BKP="/root/ponto_de_restauracao/arquivos"
+if [ ! -d "$BKP" ]; then
+    BKP="/home/mac/ponto_de_restauracao/arquivos"
+fi
+
+if [ ! -d "$BKP" ]; then
+    echo "Erro: Diretorio de backup nao encontrado em /root nem em /home/mac!"
+    exit 1
+fi
+
+FORCE_OC=0
+if [ "$1" = "--force-opencore" ] || [ "$1" = "-f" ]; then
+    FORCE_OC=1
+fi
+
+echo "=========================================================="
+echo "   RESTAURANDO CONFIGURACOES DA MAQUINA E DA VM MACOS     "
+echo "=========================================================="
+
+# 1. Restaura modprobe
+echo "[*] Restaurando modprobe (VFIO e Blacklist Bluetooth)..."
+[ -f "$BKP/vfio.conf" ] && cp -f "$BKP/vfio.conf" /etc/modprobe.d/
+[ -f "$BKP/blacklist-bluetooth.conf" ] && cp -f "$BKP/blacklist-bluetooth.conf" /etc/modprobe.d/
+
+# 2. Restaura configuracoes de inicializacao grafica
+echo "[*] Restaurando xinitrc e autologin..."
+[ -f "$BKP/.xinitrc" ] && cp -f "$BKP/.xinitrc" /root/.xinitrc && chmod +x /root/.xinitrc
+[ -f "$BKP/.bash_profile" ] && cp -f "$BKP/.bash_profile" /root/.bash_profile
+if [ -f "$BKP/autologin.conf" ]; then
+    mkdir -p /etc/systemd/system/getty@tty1.service.d/
+    cp -f "$BKP/autologin.conf" /etc/systemd/system/getty@tty1.service.d/
+fi
+
+# 3. Garante o Linger para o usuario mac
+echo "[*] Habilitando linger do usuario mac (PipeWire persistente)..."
+loginctl enable-linger mac 2>/dev/null || true
+
+# 4. Restaura arquivos da VM
+echo "[*] Restaurando configuracao da VM (vm.toml)..."
+VM_DIR="/root/.local/share/reims-ctl/vms/mac"
+mkdir -p "$VM_DIR"
+[ -f "$BKP/vm.toml" ] && cp -f "$BKP/vm.toml" "$VM_DIR/"
+[ -f "$BKP/OVMF_VARS.fd" ] && cp -f "$BKP/OVMF_VARS.fd" "$VM_DIR/"
+
+if [ "$FORCE_OC" -eq 1 ] || [ ! -f "$VM_DIR/opencore.qcow2" ]; then
+    echo "[*] Restaurando opencore.qcow2 do backup..."
+    cp -f "$BKP/opencore.qcow2" "$VM_DIR/"
+else
+    echo "[*] opencore.qcow2 ja existe (use --force-opencore para sobrescrever)."
+fi
+
+# 5. Aplica isolamento dinamico de hardware (sem precisar reiniciar)
+echo "[*] Aplicando vinculacao ao vfio-pci e liberando Bluetooth..."
+modprobe vfio-pci 2>/dev/null || true
+
+# Desvincula AX200 do iwlwifi e vincula ao vfio-pci
+ip link set wlp5s0 down 2>/dev/null || true
+echo "0000:05:00.0" > /sys/bus/pci/drivers/iwlwifi/unbind 2>/dev/null || true
+echo "vfio-pci" > /sys/bus/pci/devices/0000:05:00.0/driver_override 2>/dev/null || true
+echo "0000:05:00.0" > /sys/bus/pci/drivers/vfio-pci/bind 2>/dev/null || true
+
+# Descarrega bluetooth do host para liberar para o QEMU
+rmmod btusb 2>/dev/null || true
+rmmod btintel 2>/dev/null || true
+
+echo "[*] Hardware vinculado com sucesso:"
+lspci -k -s 05:00.0 | grep -i "Kernel driver in use" || true
+
+# 6. Verifica se o macOS ja esta rodando ou inicia
+echo "[*] Verificando status da VM..."
+STATUS=$(reims-ctl list 2>/dev/null | grep -E "^mac " | awk '{print $2}' || true)
+
+if [ "$STATUS" = "running" ]; then
+    echo "[OK] A VM 'mac' ja esta em execucao!"
+else
+    echo "[*] Iniciando a VM 'mac'..."
+    XDG_RUNTIME_DIR=/run/user/1000 DISPLAY=:0 reims-ctl start mac
+    echo "[OK] Comando de inicializacao executado!"
+fi
+
+echo "=========================================================="
+echo "   RESTAURACAO CONCLUIDA COM SUCESSO!                     "
+echo "=========================================================="
